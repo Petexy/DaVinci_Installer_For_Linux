@@ -1,0 +1,365 @@
+#!/usr/bin/env python3
+
+import gi
+import subprocess
+import threading
+import gettext
+import locale
+import os
+import shutil
+import shlex
+import re
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, Adw, GLib, Gdk
+
+class MainWindow(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app)
+        # App info and reset of potentially lost data
+        self.set_title("DaVinci Installer")
+        self.set_default_size(750, 240)
+        self.progress_visible = False
+        self.progress_data = ""
+        self.install_started = False
+        self.error_message = None  
+
+        # Main vertical box to hold header bar and content
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_content(main_box)
+
+        # Add Adwaita header bar
+        self.header_bar = Adw.HeaderBar()
+        self.header_bar.set_title_widget(Adw.WindowTitle.new("", ""))
+        main_box.append(self.header_bar)
+
+        css_provider = Gtk.CssProvider()
+        css = """
+        headerbar {
+            background-color: transparent;
+            border: none;
+            box-shadow: none;
+        }
+        .titlebar {
+            background-color: transparent;
+        }
+        """
+        css_provider.load_from_data(css.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(),
+            css_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        # Main horizontal box for content
+        hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20,
+                       margin_top=20, margin_bottom=20, margin_start=20, margin_end=20)
+        main_box.append(hbox)
+
+        # Left vertical button group
+        button_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        hbox.append(button_box)
+
+        # A single button to start the installation process
+        self.btn_install = Gtk.Button(label="Select Installer File...")
+        self.btn_toggle_progress = Gtk.Button(label="Show progress", sensitive=False)
+
+        self.btn_install.set_margin_start(12)
+        self.btn_install.set_margin_end(12)
+        self.btn_install.set_vexpand(True)
+        self.btn_install.add_css_class("suggested-action")
+
+        self.btn_toggle_progress.set_margin_bottom(12)
+        self.btn_toggle_progress.set_margin_start(12)
+        self.btn_toggle_progress.set_margin_end(12)
+        self.btn_toggle_progress.set_vexpand(True)
+
+        self.btn_install.connect("clicked", self.on_install_clicked)
+        self.btn_toggle_progress.connect("clicked", self.on_toggle_progress_clicked)
+
+        button_box.append(self.btn_install)
+        button_box.append(self.btn_toggle_progress)
+
+        # Right side: output or instructions
+        self.output_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        hbox.append(self.output_box)
+
+        # Info label (default message or in-progress/completion info)
+        self.info_label = Gtk.Label()
+        self.set_welcome_message()
+        self.info_label.set_vexpand(True)
+        self.info_label.set_hexpand(True)
+        self.info_label.set_wrap(True)
+        self.output_box.append(self.info_label)
+
+        # Output text view inside a scrolled window within a frame
+        self.output_buffer = Gtk.TextBuffer()
+        self.output_textview = Gtk.TextView.new_with_buffer(self.output_buffer)
+        self.output_textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.output_textview.set_editable(False)
+        self.output_textview.set_cursor_visible(False)
+        self.output_textview.set_monospace(True)
+        self.output_textview.set_left_margin(10)
+        self.output_textview.set_right_margin(10)
+        self.output_textview.set_top_margin(5)
+        self.output_textview.set_bottom_margin(5)
+
+        # Create a scrolled window
+        self.scrolled_window = Gtk.ScrolledWindow()
+        self.scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.scrolled_window.set_child(self.output_textview)
+        self.scrolled_window.set_hexpand(True)
+        self.scrolled_window.set_vexpand(True)
+
+        self.output_frame = Gtk.Frame()
+        self.output_frame.set_child(self.scrolled_window)
+        self.output_frame.set_hexpand(True)
+        self.output_frame.set_vexpand(True)
+        self.output_frame.set_visible(False)
+
+        self.output_box.append(self.output_frame)
+
+        # Connect to the close-request signal to prevent closing during installation
+        self.connect("close-request", self.on_close_request)
+
+    def on_close_request(self, *args):
+        # Handle the close-request signal to prevent closing during installation
+        if self.install_started:
+            # Show a notification or dialog to inform the user
+            dialog = Adw.MessageDialog(
+                heading="Installation in Progress",
+                body="Please wait until the installation is complete before closing the application.",
+                transient_for=self,
+                modal=True
+            )
+            dialog.add_response("ok", "OK")
+            dialog.set_default_response("ok")
+            dialog.set_close_response("ok")
+            dialog.present()
+            return True  # Prevents the window from closing
+        return False  # Allows the window to close
+
+    def set_welcome_message(self):
+        self.info_label.set_markup(
+            '<span size="large" weight="bold">{}</span>\n\n{}'.format(
+                "Welcome to DaVinci Resolve Installer!",
+                "Please make sure that you have downloaded the DaVinci Resolve installer file before the installation."
+            )
+        )
+
+    def on_install_clicked(self, button):
+        # Starts the file selection process
+        self.create_file_chooser()
+
+    def create_file_chooser(self):
+        """Creates and shows a file chooser dialog."""
+        title = "Select DaVinci Resolve .run file"
+        file_chooser = Gtk.FileChooserDialog(
+            title=title,
+            transient_for=self,
+            modal=True,
+            action=Gtk.FileChooserAction.OPEN
+        )
+        
+        file_chooser.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        file_chooser.add_button("Open", Gtk.ResponseType.OK)
+        
+        file_filter = Gtk.FileFilter()
+        file_filter.set_name("DaVinci Resolve Installer (*.run)")
+        file_filter.add_pattern("*.run")
+        file_chooser.add_filter(file_filter)
+        
+        # Connect the response signal
+        file_chooser.connect("response", self.on_file_chooser_response)
+        file_chooser.present()
+
+    def prepare_pkgbuild(self, run_file_path, source_pkgbuild):
+        """Copies and modifies the PKGBUILD file for the installation."""
+        if not os.path.exists(source_pkgbuild):
+            raise FileNotFoundError(f"Source PKGBUILD not found at {source_pkgbuild}")
+
+        # Destination directory and path for the new PKGBUILD
+        dest_dir = os.path.dirname(run_file_path)
+        dest_pkgbuild = os.path.join(dest_dir, "PKGBUILD")
+
+        # 1. Copy the file
+        shutil.copy2(source_pkgbuild, dest_pkgbuild)
+
+        # 2. Extract version from the .run filename
+        filename = os.path.basename(run_file_path)
+        match = re.search(r"DaVinci_Resolve(?:_Studio)?_([\d\.]+)_Linux\.run", filename)
+        if not match:
+            raise ValueError(f"Could not extract version number from filename: {filename}")
+        new_version = match.group(1)
+
+        # 3. Read, modify, and write the pkgver in the copied PKGBUILD
+        with open(dest_pkgbuild, "r") as f:
+            lines = f.readlines()
+        
+        new_lines = []
+        found_pkgver = False
+        for line in lines:
+            if line.strip().startswith("pkgver="):
+                new_lines.append(f"pkgver={new_version}\n")
+                found_pkgver = True
+            else:
+                new_lines.append(line)
+
+        if not found_pkgver:
+            raise ValueError("Could not find 'pkgver=' line in the PKGBUILD file.")
+
+        with open(dest_pkgbuild, "w") as f:
+            f.writelines(new_lines)
+
+    def on_file_chooser_response(self, dialog, response_id):
+        """Handles file selection, prepares PKGBUILD, and starts installation."""
+        if response_id == Gtk.ResponseType.OK:
+            file = dialog.get_file()
+            if file:
+                self.pkgfile = file.get_path()
+                pkg_dir = os.path.dirname(self.pkgfile)
+                filename = os.path.basename(self.pkgfile)
+
+                # Determine product and PKGBUILD source based on filename
+                if "_Studio_" in filename:
+                    product_name = "DaVinci Resolve Studio"
+                    source_pkgbuild = "/usr/share/linexin/davincistudio/PKGBUILD"
+                else:
+                    product_name = "DaVinci Resolve"
+                    source_pkgbuild = "/usr/share/linexin/davinci/PKGBUILD"
+
+                try:
+                    # 1. Prepare the PKGBUILD (copy and modify)
+                    self.prepare_pkgbuild(self.pkgfile, source_pkgbuild)
+
+                    # 2. Define the new installation command to run makepkg.
+                    quoted_pkg_dir = shlex.quote(pkg_dir)
+                    command = f"cd {quoted_pkg_dir} && makepkg -si --noconfirm"
+                    
+                    # 3. Start the installation process
+                    self.begin_install(command, product_name)
+
+                except Exception as e:
+                    self.show_error_message(f"Failed to prepare for installation: {e}")
+
+            else:
+                self.show_error_message("No file selected. Installation cancelled.")
+        else:
+            self.show_error_message("Installation cancelled.")
+        
+        dialog.destroy()
+
+    def show_error_message(self, message):
+        # Display error message in info_label
+        self.info_label.set_markup(
+            f'<span color="red" weight="bold">{message}</span>'
+        )
+        self.info_label.set_visible(True)
+
+    def begin_install(self, command, product_name):
+        self.install_started = True
+        self.header_bar.set_sensitive(False)
+        self.header_bar.set_opacity(0.5) # Dim instead of making invisible
+        self.btn_install.set_sensitive(False)
+        self.btn_toggle_progress.set_sensitive(True)
+        self.current_product = product_name
+        self.error_message = None  
+
+        self.info_label.set_label(f"Installing {product_name}...")
+        self.output_frame.set_visible(False)
+        self.info_label.set_visible(True)
+        self.progress_data = ""
+        self.progress_visible = False
+        self.btn_toggle_progress.set_label("Show progress")
+        self.output_buffer.set_text("")  
+
+        self.run_shell_command(command)
+
+    def on_toggle_progress_clicked(self, button):
+        self.progress_visible = not self.progress_visible
+
+        if self.progress_visible:
+            self.btn_toggle_progress.set_label("Hide progress")
+            self.output_buffer.set_text(self.progress_data or "[console output]")
+            self.output_frame.set_visible(True)
+            self.info_label.set_visible(False)
+            GLib.idle_add(self.scroll_to_end)
+        else:
+            self.btn_toggle_progress.set_label("Show progress")
+            self.output_frame.set_visible(False)
+            self.info_label.set_label(f"Installing {self.current_product}...")
+            self.info_label.set_visible(True)
+
+    def run_shell_command(self, command):
+        def stream_output():
+            try:
+                process = subprocess.Popen(command, 
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace'
+                )
+
+                for line in iter(process.stdout.readline, ''):
+                    if line:
+                        self.progress_data += line
+                        GLib.idle_add(self.update_output_buffer, self.progress_data)
+
+                process.stdout.close()
+                return_code = process.wait()
+                if return_code != 0:
+                    # This will now be correctly triggered on auth failure
+                    self.error_message = f"Process exited with code {return_code}"
+            except Exception as e:
+                self.error_message = str(e)
+                self.progress_data += f"\nError: {e}"
+                GLib.idle_add(self.update_output_buffer, self.progress_data)
+
+            GLib.idle_add(self.finish_installation)
+
+        threading.Thread(target=stream_output, daemon=True).start()
+
+    def update_output_buffer(self, text):
+        if self.progress_visible:
+            self.output_buffer.set_text(text)
+            GLib.idle_add(self.scroll_to_end)
+        return False
+
+    def scroll_to_end(self):
+        end_iter = self.output_buffer.get_end_iter()
+        self.output_textview.scroll_to_iter(end_iter, 0.0, False, 0.0, 0.0)
+        return False
+
+    def finish_installation(self):
+        self.install_started = False
+        self.header_bar.set_sensitive(True)
+        self.header_bar.set_opacity(1)
+        self.btn_install.set_sensitive(True)
+        self.btn_toggle_progress.set_sensitive(False)
+        
+        if self.error_message:
+            self.info_label.set_markup(f'<span color="red" weight="bold">Installation failed: {self.error_message}</span>')
+        else:
+            self.info_label.set_markup(f'<span color="green" weight="bold">Successfully installed {self.current_product}!</span>')
+        
+        self.info_label.set_visible(True)
+        self.output_frame.set_visible(False)
+        self.progress_visible = False
+        self.btn_toggle_progress.set_label("Show progress")
+        return False
+
+class DaVinciApp(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id="com.example.DaVinciInstaller")
+
+    def do_activate(self):
+        win = MainWindow(self)
+        win.present()
+
+if __name__ == "__main__":
+    import sys
+    app = DaVinciApp()
+    sys.exit(app.run())
