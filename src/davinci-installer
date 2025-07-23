@@ -14,16 +14,31 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib, Gdk
 
+# --- Localization Setup ---
+APP_NAME = "davinci-installer"
+LOCALE_DIR = os.path.abspath("./locale")
+
+# Set up the locale environment
+locale.setlocale(locale.LC_ALL, '')
+locale.bindtextdomain(APP_NAME, LOCALE_DIR)
+gettext.bindtextdomain(APP_NAME, LOCALE_DIR)
+gettext.textdomain(APP_NAME)
+_ = gettext.gettext
+# --------------------------
+
+
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app)
         # App info and reset of potentially lost data
-        self.set_title("DaVinci Installer")
+        self.set_title(_("DaVinci Installer"))
         self.set_default_size(750, 240)
         self.progress_visible = False
         self.progress_data = ""
         self.install_started = False
-        self.error_message = None  
+        self.error_message = None
+        self.tmp_build_dir = None
+        self.original_run_file_path = None
 
         # Main vertical box to hold header bar and content
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -62,8 +77,8 @@ class MainWindow(Adw.ApplicationWindow):
         hbox.append(button_box)
 
         # A single button to start the installation process
-        self.btn_install = Gtk.Button(label="Select Installer File...")
-        self.btn_toggle_progress = Gtk.Button(label="Show progress", sensitive=False)
+        self.btn_install = Gtk.Button(label=_("Select Installer File"))
+        self.btn_toggle_progress = Gtk.Button(label=_("Show progress"), sensitive=False)
 
         self.btn_install.set_margin_start(12)
         self.btn_install.set_margin_end(12)
@@ -128,12 +143,12 @@ class MainWindow(Adw.ApplicationWindow):
         if self.install_started:
             # Show a notification or dialog to inform the user
             dialog = Adw.MessageDialog(
-                heading="Installation in Progress",
-                body="Please wait until the installation is complete before closing the application.",
+                heading=_("Installation in Progress"),
+                body=_("Please wait until the installation is complete before closing the application."),
                 transient_for=self,
                 modal=True
             )
-            dialog.add_response("ok", "OK")
+            dialog.add_response("ok", _("OK"))
             dialog.set_default_response("ok")
             dialog.set_close_response("ok")
             dialog.present()
@@ -141,10 +156,11 @@ class MainWindow(Adw.ApplicationWindow):
         return False  # Allows the window to close
 
     def set_welcome_message(self):
+        self.info_label.set_margin_top(-15)
         self.info_label.set_markup(
             '<span size="large" weight="bold">{}</span>\n\n{}'.format(
-                "Welcome to DaVinci Resolve Installer!",
-                "Please make sure that you have downloaded the DaVinci Resolve installer file before the installation."
+                _("Welcome to DaVinci Resolve Installer!"),
+                _("The app is created to help you with the installation of the DaVinci Resolve for Linux. \nDownload the installer for the Linux, unzip it and let the app handle the rest. \n\nWorks both for DaVinci Resolve and DaVinci Resolve Studio.")
             )
         )
 
@@ -154,7 +170,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def create_file_chooser(self):
         """Creates and shows a file chooser dialog."""
-        title = "Select DaVinci Resolve .run file"
+        title = _("Select DaVinci Resolve .run file")
         file_chooser = Gtk.FileChooserDialog(
             title=title,
             transient_for=self,
@@ -162,11 +178,11 @@ class MainWindow(Adw.ApplicationWindow):
             action=Gtk.FileChooserAction.OPEN
         )
         
-        file_chooser.add_button("Cancel", Gtk.ResponseType.CANCEL)
-        file_chooser.add_button("Open", Gtk.ResponseType.OK)
+        file_chooser.add_button(_("Cancel"), Gtk.ResponseType.CANCEL)
+        file_chooser.add_button(_("Open"), Gtk.ResponseType.OK)
         
         file_filter = Gtk.FileFilter()
-        file_filter.set_name("DaVinci Resolve Installer (*.run)")
+        file_filter.set_name(_("DaVinci Resolve Installer (*.run)"))
         file_filter.add_pattern("*.run")
         file_chooser.add_filter(file_filter)
         
@@ -175,8 +191,16 @@ class MainWindow(Adw.ApplicationWindow):
         file_chooser.present()
 
     def prepare_build_environment(self, run_file_path, is_studio):
-        """Copies all necessary files, creates src dir, and moves the installer."""
-        dest_dir = os.path.dirname(run_file_path)
+        """Creates a temporary build dir, copies files, and moves the installer."""
+        original_dir = os.path.dirname(run_file_path)
+        # Define and create the temporary build directory
+        self.tmp_build_dir = os.path.join(original_dir, "davinci_tmp")
+        os.makedirs(self.tmp_build_dir, exist_ok=True)
+        
+        # Store original path for cleanup
+        self.original_run_file_path = run_file_path
+
+        dest_dir = self.tmp_build_dir # All top-level files go here
 
         # Define source paths based on whether it's a Studio version
         if is_studio:
@@ -194,19 +218,25 @@ class MainWindow(Adw.ApplicationWindow):
         # Check if all source files exist
         for f in [source_pkgbuild, source_panels_script, source_install_file]:
             if not os.path.exists(f):
-                raise FileNotFoundError(f"Required file not found at {f}")
+                raise FileNotFoundError(_("Required file not found at {}").format(f))
 
-        # 1. Copy PKGBUILD, panels script, and .install file
+        # 1. Create 'src' directory inside the tmp dir
+        src_dir = os.path.join(self.tmp_build_dir, "src")
+        os.makedirs(src_dir, exist_ok=True)
+
+        # 2. Copy PKGBUILD and .install file to tmp_dir
         shutil.copy2(source_pkgbuild, os.path.join(dest_dir, "PKGBUILD"))
-        shutil.copy2(source_panels_script, os.path.join(dest_dir, "davinci-control-panels-setup.sh"))
         shutil.copy2(source_install_file, os.path.join(dest_dir, install_file_name))
+
+        # 3. Copy panels script to the new 'src' directory
+        shutil.copy2(source_panels_script, os.path.join(src_dir, "davinci-control-panels-setup.sh"))
         
-        # 2. Update the pkgver in the copied PKGBUILD
+        # 4. Update the pkgver in the copied PKGBUILD
         dest_pkgbuild = os.path.join(dest_dir, "PKGBUILD")
         filename = os.path.basename(run_file_path)
         match = re.search(r"DaVinci_Resolve(?:_Studio)?_([\d\.]+)_Linux\.run", filename)
         if not match:
-            raise ValueError(f"Could not extract version number from filename: {filename}")
+            raise ValueError(_("Could not extract version number from filename: {}").format(filename))
         new_version = match.group(1)
 
         with open(dest_pkgbuild, "r") as f:
@@ -215,11 +245,7 @@ class MainWindow(Adw.ApplicationWindow):
         with open(dest_pkgbuild, "w") as f:
             f.writelines(new_lines)
 
-        # 3. Create 'src' directory
-        src_dir = os.path.join(dest_dir, "src")
-        os.makedirs(src_dir, exist_ok=True)
-
-        # 4. Move the .run file into 'src'
+        # 5. Move the .run file from its original location into 'src'
         shutil.move(run_file_path, os.path.join(src_dir, filename))
 
 
@@ -228,34 +254,60 @@ class MainWindow(Adw.ApplicationWindow):
         if response_id == Gtk.ResponseType.OK:
             file = dialog.get_file()
             if file:
-                self.pkgfile = file.get_path()
-                pkg_dir = os.path.dirname(self.pkgfile)
-                filename = os.path.basename(self.pkgfile)
+                run_file_path = file.get_path()
+                filename = os.path.basename(run_file_path)
 
-                # Determine product and PKGBUILD source based on filename
+                # Determine product based on filename
                 is_studio = "_Studio_" in filename
                 product_name = "DaVinci Resolve Studio" if is_studio else "DaVinci Resolve"
 
                 try:
-                    # 1. Prepare the entire build environment
-                    self.prepare_build_environment(self.pkgfile, is_studio)
+                    # 1. Prepare the entire build environment in a temporary directory
+                    self.prepare_build_environment(run_file_path, is_studio)
 
-                    # 2. Define the new installation command to run makepkg.
-                    quoted_pkg_dir = shlex.quote(pkg_dir)
-                    command = f"cd {quoted_pkg_dir} && makepkg -si --noconfirm"
+                    # 2. Define the new installation command to run makepkg in the temp dir
+                    quoted_tmp_dir = shlex.quote(self.tmp_build_dir)
+                    command = f"cd {quoted_tmp_dir} && export PACMAN_AUTH=run0 && makepkg -si --noconfirm"
                     
                     # 3. Start the installation process
                     self.begin_install(command, product_name)
 
                 except Exception as e:
-                    self.show_error_message(f"Failed to prepare for installation: {e}")
+                    self.show_error_message(_("Failed to prepare for installation: {}").format(e))
+                    # If prep fails, clean up immediately
+                    self.cleanup_build_environment()
 
             else:
-                self.show_error_message("No file selected. Installation cancelled.")
+                self.show_error_message(_("No file selected. Installation cancelled."))
         else:
-            self.show_error_message("Installation cancelled.")
+            self.show_error_message(_("Installation cancelled."))
         
         dialog.destroy()
+
+    def cleanup_build_environment(self):
+        """Moves the installer back and removes the temporary build directory."""
+        if not self.tmp_build_dir or not self.original_run_file_path:
+            return
+
+        try:
+            # Path to the .run file inside the tmp/src directory
+            tmp_run_file_path = os.path.join(self.tmp_build_dir, "src", os.path.basename(self.original_run_file_path))
+
+            # Move the .run file back to its original location if it exists
+            if os.path.exists(tmp_run_file_path):
+                shutil.move(tmp_run_file_path, self.original_run_file_path)
+
+            # Remove the temporary directory
+            if os.path.exists(self.tmp_build_dir):
+                shutil.rmtree(self.tmp_build_dir)
+                
+        except Exception as e:
+            # If cleanup fails, just print an error to the console.
+            print(_("Warning: Failed to clean up temporary build files: {}").format(e))
+        finally:
+            # Reset the attributes to avoid accidental reuse
+            self.tmp_build_dir = None
+            self.original_run_file_path = None
 
     def show_error_message(self, message):
         # Display error message in info_label
@@ -273,12 +325,12 @@ class MainWindow(Adw.ApplicationWindow):
         self.current_product = product_name
         self.error_message = None  
 
-        self.info_label.set_label(f"Installing {product_name}...")
+        self.info_label.set_label(_("Installing {}...").format(product_name))
         self.output_frame.set_visible(False)
         self.info_label.set_visible(True)
         self.progress_data = ""
         self.progress_visible = False
-        self.btn_toggle_progress.set_label("Show progress")
+        self.btn_toggle_progress.set_label(_("Show progress"))
         self.output_buffer.set_text("")  
 
         self.run_shell_command(command)
@@ -287,15 +339,15 @@ class MainWindow(Adw.ApplicationWindow):
         self.progress_visible = not self.progress_visible
 
         if self.progress_visible:
-            self.btn_toggle_progress.set_label("Hide progress")
-            self.output_buffer.set_text(self.progress_data or "[console output]")
+            self.btn_toggle_progress.set_label(_("Hide progress"))
+            self.output_buffer.set_text(self.progress_data or _("[console output]"))
             self.output_frame.set_visible(True)
             self.info_label.set_visible(False)
             GLib.idle_add(self.scroll_to_end)
         else:
-            self.btn_toggle_progress.set_label("Show progress")
+            self.btn_toggle_progress.set_label(_("Show progress"))
             self.output_frame.set_visible(False)
-            self.info_label.set_label(f"Installing {self.current_product}...")
+            self.info_label.set_label(_("Installing {}...").format(self.current_product))
             self.info_label.set_visible(True)
 
     def run_shell_command(self, command):
@@ -319,10 +371,10 @@ class MainWindow(Adw.ApplicationWindow):
                 return_code = process.wait()
                 if return_code != 0:
                     # This will now be correctly triggered on auth failure
-                    self.error_message = f"Process exited with code {return_code}"
+                    self.error_message = _("Process exited with code {}").format(return_code)
             except Exception as e:
                 self.error_message = str(e)
-                self.progress_data += f"\nError: {e}"
+                self.progress_data += _("\nError: {}").format(e)
                 GLib.idle_add(self.update_output_buffer, self.progress_data)
 
             GLib.idle_add(self.finish_installation)
@@ -348,14 +400,18 @@ class MainWindow(Adw.ApplicationWindow):
         self.btn_toggle_progress.set_sensitive(False)
         
         if self.error_message:
-            self.info_label.set_markup(f'<span color="red" weight="bold">Installation failed: {self.error_message}</span>')
+            self.info_label.set_markup(f'<span color="red" weight="bold">{_("Installation failed: {}").format(self.error_message)}</span>')
         else:
-            self.info_label.set_markup(f'<span color="green" weight="bold">Successfully installed {self.current_product}!</span>')
+            self.info_label.set_markup(f'<span color="green" weight="bold">{_("Successfully installed {}!").format(self.current_product)}</span>')
         
         self.info_label.set_visible(True)
         self.output_frame.set_visible(False)
         self.progress_visible = False
-        self.btn_toggle_progress.set_label("Show progress")
+        self.btn_toggle_progress.set_label(_("Show progress"))
+
+        # Clean up the build environment regardless of success or failure
+        self.cleanup_build_environment()
+        
         return False
 
 class DaVinciApp(Adw.Application):

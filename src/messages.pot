@@ -1,0 +1,138 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-07-24 00:29+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: davinci-installer:34
+msgid "DaVinci Installer"
+msgstr ""
+
+#: davinci-installer:80
+msgid "Select Installer File"
+msgstr ""
+
+#: davinci-installer:81 davinci-installer:333 davinci-installer:348
+#: davinci-installer:410
+msgid "Show progress"
+msgstr ""
+
+#: davinci-installer:146
+msgid "Installation in Progress"
+msgstr ""
+
+#: davinci-installer:147
+msgid ""
+"Please wait until the installation is complete before closing the "
+"application."
+msgstr ""
+
+#: davinci-installer:151
+msgid "OK"
+msgstr ""
+
+#: davinci-installer:162
+msgid "Welcome to DaVinci Resolve Installer!"
+msgstr ""
+
+#: davinci-installer:163
+msgid ""
+"The app is created to help you with the installation of the DaVinci Resolve "
+"for Linux. \n"
+"Download the installer for the Linux, unzip it and let the app handle the "
+"rest. \n"
+"\n"
+"Works both for DaVinci Resolve and DaVinci Resolve Studio."
+msgstr ""
+
+#: davinci-installer:173
+msgid "Select DaVinci Resolve .run file"
+msgstr ""
+
+#: davinci-installer:181
+msgid "Cancel"
+msgstr ""
+
+#: davinci-installer:182
+msgid "Open"
+msgstr ""
+
+#: davinci-installer:185
+msgid "DaVinci Resolve Installer (*.run)"
+msgstr ""
+
+#: davinci-installer:221
+#, python-brace-format
+msgid "Required file not found at {}"
+msgstr ""
+
+#: davinci-installer:239
+#, python-brace-format
+msgid "Could not extract version number from filename: {}"
+msgstr ""
+
+#: davinci-installer:276
+#, python-brace-format
+msgid "Failed to prepare for installation: {}"
+msgstr ""
+
+#: davinci-installer:281
+msgid "No file selected. Installation cancelled."
+msgstr ""
+
+#: davinci-installer:283
+msgid "Installation cancelled."
+msgstr ""
+
+#: davinci-installer:306
+#, python-brace-format
+msgid "Warning: Failed to clean up temporary build files: {}"
+msgstr ""
+
+#: davinci-installer:328 davinci-installer:350
+#, python-brace-format
+msgid "Installing {}..."
+msgstr ""
+
+#: davinci-installer:342
+msgid "Hide progress"
+msgstr ""
+
+#: davinci-installer:343
+msgid "[console output]"
+msgstr ""
+
+#: davinci-installer:374
+#, python-brace-format
+msgid "Process exited with code {}"
+msgstr ""
+
+#: davinci-installer:377
+#, python-brace-format
+msgid ""
+"\n"
+"Error: {}"
+msgstr ""
+
+#: davinci-installer:403
+#, python-brace-format
+msgid "Installation failed: {}"
+msgstr ""
+
+#: davinci-installer:405
+#, python-brace-format
+msgid "Successfully installed {}!"
+msgstr ""
