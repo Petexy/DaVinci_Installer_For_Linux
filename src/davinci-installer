@@ -416,7 +416,7 @@ class MainWindow(Adw.ApplicationWindow):
 
 class DaVinciApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="com.example.DaVinciInstaller")
+        super().__init__(application_id="github.petexy.davinciinstaller")
 
     def do_activate(self):
         win = MainWindow(self)
