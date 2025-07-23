@@ -16,7 +16,7 @@ from gi.repository import Gtk, Adw, GLib, Gdk
 
 # --- Localization Setup ---
 APP_NAME = "davinci-installer"
-LOCALE_DIR = os.path.abspath("./locale")
+LOCALE_DIR = os.path.abspath("/usr/share/locale")
 
 # Set up the locale environment
 locale.setlocale(locale.LC_ALL, '')
