@@ -174,46 +174,57 @@ class MainWindow(Adw.ApplicationWindow):
         file_chooser.connect("response", self.on_file_chooser_response)
         file_chooser.present()
 
-    def prepare_pkgbuild(self, run_file_path, source_pkgbuild):
-        """Copies and modifies the PKGBUILD file for the installation."""
-        if not os.path.exists(source_pkgbuild):
-            raise FileNotFoundError(f"Source PKGBUILD not found at {source_pkgbuild}")
-
-        # Destination directory and path for the new PKGBUILD
+    def prepare_build_environment(self, run_file_path, is_studio):
+        """Copies all necessary files, creates src dir, and moves the installer."""
         dest_dir = os.path.dirname(run_file_path)
+
+        # Define source paths based on whether it's a Studio version
+        if is_studio:
+            source_dir = "/usr/share/linexin/davincistudio"
+            install_file_name = "davinci-resolve-studio.install"
+        else:
+            source_dir = "/usr/share/linexin/davinci"
+            install_file_name = "davinci-resolve.install"
+
+        # Define all source files
+        source_pkgbuild = os.path.join(source_dir, "PKGBUILD")
+        source_panels_script = os.path.join(source_dir, "davinci-control-panels-setup.sh")
+        source_install_file = os.path.join(source_dir, install_file_name)
+
+        # Check if all source files exist
+        for f in [source_pkgbuild, source_panels_script, source_install_file]:
+            if not os.path.exists(f):
+                raise FileNotFoundError(f"Required file not found at {f}")
+
+        # 1. Copy PKGBUILD, panels script, and .install file
+        shutil.copy2(source_pkgbuild, os.path.join(dest_dir, "PKGBUILD"))
+        shutil.copy2(source_panels_script, os.path.join(dest_dir, "davinci-control-panels-setup.sh"))
+        shutil.copy2(source_install_file, os.path.join(dest_dir, install_file_name))
+        
+        # 2. Update the pkgver in the copied PKGBUILD
         dest_pkgbuild = os.path.join(dest_dir, "PKGBUILD")
-
-        # 1. Copy the file
-        shutil.copy2(source_pkgbuild, dest_pkgbuild)
-
-        # 2. Extract version from the .run filename
         filename = os.path.basename(run_file_path)
         match = re.search(r"DaVinci_Resolve(?:_Studio)?_([\d\.]+)_Linux\.run", filename)
         if not match:
             raise ValueError(f"Could not extract version number from filename: {filename}")
         new_version = match.group(1)
 
-        # 3. Read, modify, and write the pkgver in the copied PKGBUILD
         with open(dest_pkgbuild, "r") as f:
             lines = f.readlines()
-        
-        new_lines = []
-        found_pkgver = False
-        for line in lines:
-            if line.strip().startswith("pkgver="):
-                new_lines.append(f"pkgver={new_version}\n")
-                found_pkgver = True
-            else:
-                new_lines.append(line)
-
-        if not found_pkgver:
-            raise ValueError("Could not find 'pkgver=' line in the PKGBUILD file.")
-
+        new_lines = [f"pkgver={new_version}\n" if l.strip().startswith("pkgver=") else l for l in lines]
         with open(dest_pkgbuild, "w") as f:
             f.writelines(new_lines)
 
+        # 3. Create 'src' directory
+        src_dir = os.path.join(dest_dir, "src")
+        os.makedirs(src_dir, exist_ok=True)
+
+        # 4. Move the .run file into 'src'
+        shutil.move(run_file_path, os.path.join(src_dir, filename))
+
+
     def on_file_chooser_response(self, dialog, response_id):
-        """Handles file selection, prepares PKGBUILD, and starts installation."""
+        """Handles file selection, prepares build environment, and starts installation."""
         if response_id == Gtk.ResponseType.OK:
             file = dialog.get_file()
             if file:
@@ -222,16 +233,12 @@ class MainWindow(Adw.ApplicationWindow):
                 filename = os.path.basename(self.pkgfile)
 
                 # Determine product and PKGBUILD source based on filename
-                if "_Studio_" in filename:
-                    product_name = "DaVinci Resolve Studio"
-                    source_pkgbuild = "/usr/share/linexin/davincistudio/PKGBUILD"
-                else:
-                    product_name = "DaVinci Resolve"
-                    source_pkgbuild = "/usr/share/linexin/davinci/PKGBUILD"
+                is_studio = "_Studio_" in filename
+                product_name = "DaVinci Resolve Studio" if is_studio else "DaVinci Resolve"
 
                 try:
-                    # 1. Prepare the PKGBUILD (copy and modify)
-                    self.prepare_pkgbuild(self.pkgfile, source_pkgbuild)
+                    # 1. Prepare the entire build environment
+                    self.prepare_build_environment(self.pkgfile, is_studio)
 
                     # 2. Define the new installation command to run makepkg.
                     quoted_pkg_dir = shlex.quote(pkg_dir)
