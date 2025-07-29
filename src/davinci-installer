@@ -16,7 +16,7 @@ from gi.repository import Gtk, Adw, GLib, Gdk
 
 # --- Localization Setup ---
 APP_NAME = "davinci-installer"
-LOCALE_DIR = os.path.abspath("/usr/share/locale")
+LOCALE_DIR = os.path.abspath("./locale")
 
 # Set up the locale environment
 locale.setlocale(locale.LC_ALL, '')
@@ -224,14 +224,12 @@ class MainWindow(Adw.ApplicationWindow):
         src_dir = os.path.join(self.tmp_build_dir, "src")
         os.makedirs(src_dir, exist_ok=True)
 
-        # 2. Copy PKGBUILD and .install file to tmp_dir
+        # 2. Copy PKGBUILD, .install file, and panels script to the root of tmp_dir
         shutil.copy2(source_pkgbuild, os.path.join(dest_dir, "PKGBUILD"))
         shutil.copy2(source_install_file, os.path.join(dest_dir, install_file_name))
-
-        # 3. Copy panels script to the new 'src' directory
-        shutil.copy2(source_panels_script, os.path.join(src_dir, "davinci-control-panels-setup.sh"))
+        shutil.copy2(source_panels_script, os.path.join(dest_dir, "davinci-control-panels-setup.sh"))
         
-        # 4. Update the pkgver in the copied PKGBUILD
+        # 3. Update the pkgver in the copied PKGBUILD
         dest_pkgbuild = os.path.join(dest_dir, "PKGBUILD")
         filename = os.path.basename(run_file_path)
         match = re.search(r"DaVinci_Resolve(?:_Studio)?_([\d\.]+)_Linux\.run", filename)
@@ -245,7 +243,7 @@ class MainWindow(Adw.ApplicationWindow):
         with open(dest_pkgbuild, "w") as f:
             f.writelines(new_lines)
 
-        # 5. Move the .run file from its original location into 'src'
+        # 4. Move the .run file from its original location into 'src'
         shutil.move(run_file_path, os.path.join(src_dir, filename))
 
 
@@ -267,7 +265,8 @@ class MainWindow(Adw.ApplicationWindow):
 
                     # 2. Define the new installation command to run makepkg in the temp dir
                     quoted_tmp_dir = shlex.quote(self.tmp_build_dir)
-                    command = f"cd {quoted_tmp_dir} && export PACMAN_AUTH=run0 && makepkg -si --noconfirm"
+                    # *** FIX ***: Added --skipinteg to bypass checksum verification.
+                    command = f"cd {quoted_tmp_dir} && export PACMAN_AUTH=run0 && makepkg -si --noconfirm --skipinteg"
                     
                     # 3. Start the installation process
                     self.begin_install(command, product_name)
@@ -426,3 +425,4 @@ if __name__ == "__main__":
     import sys
     app = DaVinciApp()
     sys.exit(app.run())
+

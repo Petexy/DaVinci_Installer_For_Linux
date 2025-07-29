@@ -26,4 +26,5 @@ package() {
    cp -rf ${srcdir}/locale ${pkgdir}/usr/share/
    cp -rf ${srcdir}/icons ${pkgdir}/usr/share/
    cp -rf ${srcdir}/applications ${pkgdir}/usr/share/
+   cp -rf ${srcdir}/linexin ${pkgdir}/usr/share/
 }
