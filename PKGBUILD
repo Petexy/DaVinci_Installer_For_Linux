@@ -1,7 +1,7 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=davinci-installer
-pkgver=1.0.3.r
+pkgver=1.0.4.r
 pkgrel=1
 _currentdate=$(date +"%Y-%m-%d%H-%M-%S")
 pkgdesc='Smart Installer for Affinity suite for Linux'
