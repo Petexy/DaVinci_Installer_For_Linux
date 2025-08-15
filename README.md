@@ -28,8 +28,6 @@ There are two ways to properly use it on Arch and Arch-based distros other than 
 4. Wait
 8. Run your program from the Application Launcher
 
-### Second one (if you don't want to add repo):
-
 <br><br>
 
 ## Troubleshooting:
