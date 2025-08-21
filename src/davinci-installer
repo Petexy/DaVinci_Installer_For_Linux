@@ -278,7 +278,7 @@ class MainWindow(Adw.ApplicationWindow):
                     # 2. Define the new installation command to run makepkg in the temp dir
                     quoted_tmp_dir = shlex.quote(self.tmp_build_dir)
                     # *** FIX ***: Added --skipinteg to bypass checksum verification.
-                    command = f"cd {quoted_tmp_dir} && export PACMAN_AUTH=run0 && makepkg -si --noconfirm --skipinteg"
+                    command = f"cd {quoted_tmp_dir} && export PACMAN_AUTH=run0 && run0 pacman -Sy && makepkg -si --noconfirm --skipinteg"
                     
                     # 3. Start the installation process
                     self.begin_install(command, product_name)
