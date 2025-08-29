@@ -2,7 +2,7 @@
 
 pkgname=davinci-installer
 pkgver=1.0.5.r
-pkgrel=1
+pkgrel=2
 _currentdate=$(date +"%Y-%m-%d%H-%M-%S")
 pkgdesc='Smart Installer for Affinity suite for Linux'
 url='https://github.com/Petexy'
@@ -13,6 +13,8 @@ depends=(
   gtk4
   libadwaita
   python
+  pipewire-pulse
+  pulseaudio-alsa
 )
 makedepends=(
 )
