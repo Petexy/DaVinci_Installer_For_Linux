@@ -1,7 +1,7 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=davinci-installer
-pkgver=1.0.5.r
+pkgver=2.0.0.r
 pkgrel=2
 _currentdate=$(date +"%Y-%m-%d%H-%M-%S")
 pkgdesc='Smart Installer for Affinity suite for Linux'
@@ -15,18 +15,14 @@ depends=(
   python
   pipewire-pulse
   pulseaudio-alsa
+  linexin-center
 )
 makedepends=(
 )
 
 package() {
-   mkdir -p ${pkgdir}/usr/bin
-   cp -rf ${pkgname} ${pkgdir}/usr/bin/${pkgname}
-   mkdir -p ${pkgdir}/usr/share/locale
+   mkdir -p ${pkgdir}/usr/share/applications
    mkdir -p ${pkgdir}/usr/share/linexin
    mkdir -p ${pkgdir}/usr/share/icons
-   cp -rf ${srcdir}/locale ${pkgdir}/usr/share/
-   cp -rf ${srcdir}/icons ${pkgdir}/usr/share/
-   cp -rf ${srcdir}/applications ${pkgdir}/usr/share/
-   cp -rf ${srcdir}/linexin ${pkgdir}/usr/share/
+   cp -rf ${srcdir}/usr ${pkgdir}/
 }

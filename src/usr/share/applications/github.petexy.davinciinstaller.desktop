@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=DaVinci Installer
 
-Exec=davinci-installer
+Exec=linexin-center -w c-davinci-installer
 
 Icon=/usr/share/icons/github.petexy.davinciinstaller.png
 
@@ -9,3 +9,4 @@ Terminal=false
 Type=Application
 Categories=GTK; Installer; Blackmagic; Movie; Video; Editing; Designer;
 StartupNotify=false
+Hidden=true
