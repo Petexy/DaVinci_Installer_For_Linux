@@ -6,5 +6,9 @@ post_install()
     xdg-desktop-menu install --novendor /usr/share/desktop-directories/DaVinciResolve.directory /usr/share/applications/blackmagicraw-speedtest.desktop
     xdg-desktop-menu install --novendor /usr/share/desktop-directories/DaVinciResolve.directory /usr/share/applications/DaVinciControlPanelsSetup.desktop
     xdg-desktop-menu forceupdate
+    if [ "$XDG_CURRENT_DESKTOP" = "KDE" ]; then
+      sudo sed -i 's|^Exec=/opt/resolve/bin/resolve %u|Exec=qdbus org.kde.kded6 /kded org.kde.kded6.unloadModule "appmenu" \&\& /opt/resolve/bin/resolve \&\& sleep 2 \&\& qdbus org.kde.kded6 /kded org.kde.kded6.loadModule "appmenu"|' /var/lib/flatpak/exports/share/applications/DaVinciResolve.desktop
+      sudo sed -i 's|^Exec=/opt/resolve/bin/resolve %u|Exec=qdbus org.kde.kded6 /kded org.kde.kded6.unloadModule "appmenu" \&\& /opt/resolve/bin/resolve \&\& sleep 2 \&\& qdbus org.kde.kded6 /kded org.kde.kded6.loadModule "appmenu"|' /usr/share/applications/DaVinciResolve.desktop
+    fi
   fi
 }
