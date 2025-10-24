@@ -1,5 +1,9 @@
 # DaVinci Resolve Installer For Linux
 
+$${\color{red}DaVinci \space Resolve \space has \space not \space been \space updated \space to \space use \space the \space newest \space libc++ \space and \space libc++abi!}$$ 
+$${\color{red}Untill \space it \space does, \space it \space is \space necessary \space to \space downgrade }$$ 
+$${\color{red}libc++ \space to \space 20.X.X \space and \space libc++abi \space to \space 20.X.X \space in \space order \space to \space make \space it \space work!}$$ 
+
 ## Supported distros:
 - Linexin
 - All Arch-Based distros
