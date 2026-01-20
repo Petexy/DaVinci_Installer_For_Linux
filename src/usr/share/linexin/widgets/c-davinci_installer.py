@@ -9,6 +9,8 @@ import os
 import shutil
 import shlex
 import re
+import tempfile
+import atexit
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -50,6 +52,16 @@ class DaVinciInstallerWidget(Gtk.Box):
         self.tmp_build_dir = None
         self.original_run_file_path = None
         
+        # Sudo wrapper state
+        self.user_password = None
+        self._askpass_tf = tempfile.NamedTemporaryFile(delete=False, prefix="linexin-askpass-")
+        self.askpass_script = self._askpass_tf.name
+        self._askpass_tf.close()
+        self._sudo_tf = tempfile.NamedTemporaryFile(delete=False, prefix="linexin-sudo-")
+        self.sudo_wrapper = self._sudo_tf.name
+        self._sudo_tf.close()
+        atexit.register(self.cleanup_temp_files)
+        
         # Create main content stack
         self.content_stack = Gtk.Stack()
         self.content_stack.set_transition_type(Gtk.StackTransitionType.SLIDE_UP_DOWN)
@@ -77,6 +89,93 @@ class DaVinciInstallerWidget(Gtk.Box):
             # Single widget mode
             GLib.idle_add(self.resize_window_deferred)
     
+    
+    def cleanup_temp_files(self):
+        try:
+            if os.path.exists(self.askpass_script):
+                os.remove(self.askpass_script)
+            if os.path.exists(self.sudo_wrapper):
+                os.remove(self.sudo_wrapper)
+        except:
+            pass
+
+    def setup_sudo_env(self):
+        """Create helper scripts for non-interactive sudo"""
+        with open(self.askpass_script, "w") as f:
+            f.write("#!/bin/sh\necho \"$LINEXIN_SUDO_PW\"\n")
+        os.chmod(self.askpass_script, 0o700)
+        
+        with open(self.sudo_wrapper, "w") as f:
+            f.write(f"#!/bin/sh\nexport SUDO_ASKPASS='{self.askpass_script}'\nexec sudo -A \"$@\"\n")
+        os.chmod(self.sudo_wrapper, 0o700)
+
+    def prompt_for_password(self):
+        """Prompt user for sudo password using Adw.MessageDialog"""
+        root = self.get_root()
+        if not root:
+            root = self.window
+            
+        dialog = Adw.MessageDialog(
+            heading=_("Authentication Required"),
+            body=_("Please enter your password to proceed with the installation."),
+            transient_for=root
+        )
+        
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("unlock", _("Unlock"))
+        dialog.set_response_appearance("unlock", Adw.ResponseAppearance.SUGGESTED)
+        
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        
+        entry = Gtk.PasswordEntry()
+        entry.set_property("placeholder-text", _("Password"))
+        box.append(entry)
+        
+        dialog.set_extra_child(box)
+        
+        def on_response(dialog, response):
+            if response == "unlock":
+                pwd = entry.get_text()
+                if pwd:
+                    self.user_password = pwd
+                    # Resume installation flow
+                    self.attempt_installation()
+            dialog.close()
+            
+        dialog.connect("response", on_response)
+        
+        def on_entry_activate(widget):
+            dialog.response("unlock")
+            
+        entry.connect("activate", on_entry_activate)
+        
+        dialog.present()
+
+    def validate_password(self):
+        """Validate the sudo password using sudo -S"""
+        if not self.user_password:
+            return False
+            
+        try:
+            subprocess.run(['sudo', '-k'], check=False)
+            
+            result = subprocess.run(
+                ['sudo', '-S', '-v'],
+                input=(self.user_password + '\n'),
+                capture_output=True,
+                text=True,
+                env={'LC_ALL': 'C'}
+            )
+            
+            if result.returncode == 0:
+                return True
+            else:
+                print(f"Password validation failed. Return code: {result.returncode}")
+                return False
+        except Exception as e:
+            print(f"Validation exception: {e}")
+            return False
+
     def resize_window_deferred(self):
         """Called after widget initialization to resize window safely"""
         if self.window:
@@ -270,38 +369,161 @@ class DaVinciInstallerWidget(Gtk.Box):
         shutil.move(run_file_path, os.path.join(src_dir, filename))
     
     def on_file_chooser_response(self, dialog, response_id):
-        """Handles file selection, prepares build environment, and starts installation"""
+        """Handles file selection, calls attempt_installation to proceed"""
         if response_id == Gtk.ResponseType.OK:
             file = dialog.get_file()
             if file:
-                run_file_path = file.get_path()
-                filename = os.path.basename(run_file_path)
-                
-                # Determine product based on filename
-                is_studio = "_Studio_" in filename
-                product_name = "DaVinci Resolve Studio" if is_studio else "DaVinci Resolve"
-                
-                try:
-                    # Prepare the entire build environment in a temporary directory
-                    self.prepare_build_environment(run_file_path, is_studio)
-                    
-                    # Define the new installation command to run makepkg in the temp dir
-                    quoted_tmp_dir = shlex.quote(self.tmp_build_dir)
-                    command = f"cd {quoted_tmp_dir} && export PACMAN_AUTH=run0 && run0 pacman -Sy && makepkg -si --noconfirm --skipinteg"
-                    
-                    # Start the installation process
-                    self.begin_install(command, product_name)
-                
-                except Exception as e:
-                    self.show_error_message(_("Failed to prepare for installation: {}").format(e))
-                    self.cleanup_build_environment()
+                self.pending_run_file_path = file.get_path()
+                self.attempt_installation()
             else:
                 self.show_error_message(_("No file selected. Installation cancelled."))
         else:
             self.show_error_message(_("Installation cancelled."))
         
         dialog.destroy()
+
+    def attempt_installation(self):
+        """Check auth and proceed with installation"""
+        if not hasattr(self, 'pending_run_file_path') or not self.pending_run_file_path:
+            return
+
+        # 1. Check for password
+        if not self.user_password:
+            self.prompt_for_password()
+            return
+        
+        # 2. Validate password
+        self.setup_sudo_env()
+        if not self.validate_password():
+            self.user_password = None
+            
+            root = self.get_root() or self.window
+            dialog = Adw.MessageDialog(
+                heading=_("Authentication Failed"),
+                body=_("The password you entered is incorrect. Please try again."),
+                transient_for=root
+            )
+            dialog.add_response("ok", _("OK"))
+            dialog.set_response_appearance("ok", Adw.ResponseAppearance.DEFAULT)
+            dialog.connect("response", lambda d, r: d.close())
+            dialog.present()
+            return
+
+        # 3. Proceed with install
+        run_file_path = self.pending_run_file_path
+        filename = os.path.basename(run_file_path)
+        
+        # Determine product based on filename
+        is_studio = "_Studio_" in filename
+        product_name = "DaVinci Resolve Studio" if is_studio else "DaVinci Resolve"
+        
+        try:
+            # Prepare the entire build environment in a temporary directory
+            self.prepare_build_environment(run_file_path, is_studio)
+            
+            # Define the new installation command
+            # 1) Install dependencies from linexin-repo
+            # 2) Build package using sudo wrapper for pacman authentication
+            quoted_tmp_dir = shlex.quote(self.tmp_build_dir)
+            
+            install_deps_cmd = f"{self.sudo_wrapper} pacman -Sy --noconfirm --overwrite '*' linexin-repo/libc++ linexin-repo/libc++abi"
+            
+            build_cmd = f"cd {quoted_tmp_dir} && export PACMAN_AUTH='{self.sudo_wrapper}' && makepkg -si --noconfirm --skipinteg"
+            
+            full_command = f"{install_deps_cmd} && {build_cmd}"
+            
+            # Start the installation process
+            self.begin_install(full_command, product_name)
+        
+        except Exception as e:
+            self.show_error_message(_("Failed to prepare for installation: {}").format(e))
+            self.cleanup_build_environment()
+        try:
+            # Add the new method before cleanup_build_environment
+            pass 
+        except:
+             pass
     
+    def configure_pacman_ignore(self, app_package_name):
+        """Add libc++, libc++abi and the app package to IgnorePkg in pacman.conf"""
+        script_content = r"""
+import sys
+import re
+import os
+
+conf_path = '/etc/pacman.conf'
+app_package = '%s'
+
+try:
+    with open(conf_path, 'r') as f:
+        lines = f.readlines()
+
+    new_lines = []
+    ignore_pkg_found = False
+    packages = ['libc++', 'libc++abi']
+    if app_package:
+        packages.append(app_package)
+
+    for line in lines:
+        if re.match(r'^\s*#?\s*IgnorePkg\s*=', line):
+            ignore_pkg_found = True
+            content = line.strip().lstrip('#').strip()
+            existing_pkgs = []
+            if '=' in content:
+                parts = content.split('=', 1)
+                if len(parts) > 1:
+                    existing_pkgs = parts[1].strip().split()
+            
+            for pkg in packages:
+                if pkg not in existing_pkgs:
+                    existing_pkgs.append(pkg)
+            
+            new_lines.append(f"IgnorePkg = {' '.join(existing_pkgs)}\n")
+        else:
+            new_lines.append(line)
+
+    if not ignore_pkg_found:
+        final_lines = []
+        inserted = False
+        for line in new_lines:
+            final_lines.append(line)
+            if line.strip() == '[options]' and not inserted:
+                 final_lines.append(f"IgnorePkg = {' '.join(packages)}\n")
+                 inserted = True
+        
+        if not inserted:
+             final_lines.append(f"IgnorePkg = {' '.join(packages)}\n")
+        new_lines = final_lines
+
+    with open(conf_path, 'w') as f:
+        f.writelines(new_lines)
+        
+except Exception as e:
+    print(f"Error updating pacman.conf: {e}")
+    sys.exit(1)
+""" % (app_package_name)
+        
+        # Create temp script
+        script_path = None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as tf:
+                tf.write(script_content)
+                script_path = tf.name
+            
+            # Run with sudo wrapper
+            env = os.environ.copy()
+            if self.user_password:
+                env['LINEXIN_SUDO_PW'] = self.user_password
+            
+            cmd = f"{self.sudo_wrapper} python3 {script_path}"
+            subprocess.run(cmd, shell=True, check=True, env=env)
+            
+        except Exception as e:
+            print(f"Failed to configure pacman IgnorePkg: {e}")
+        finally:
+            if script_path and os.path.exists(script_path):
+                os.remove(script_path)
+
     def cleanup_build_environment(self):
         """Moves the installer back and removes the temporary build directory"""
         if not self.tmp_build_dir or not self.original_run_file_path:
@@ -370,13 +592,18 @@ class DaVinciInstallerWidget(Gtk.Box):
         """Execute shell command in a separate thread"""
         def stream_output():
             try:
+                env = os.environ.copy()
+                if self.user_password:
+                    env['LINEXIN_SUDO_PW'] = self.user_password
+
                 process = subprocess.Popen(command,
                     shell=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
                     encoding='utf-8',
-                    errors='replace'
+                    errors='replace',
+                    env=env
                 )
                 
                 for line in iter(process.stdout.readline, ''):
@@ -426,6 +653,17 @@ class DaVinciInstallerWidget(Gtk.Box):
         else:
             self.info_label.set_markup(f'<span color="#2ec27e" weight="bold" size="large">{_("Successfully installed {}!").format(self.current_product)}</span>')
             self.success_image.set_visible(True)
+            
+            self.info_label.set_markup(f'<span color="#2ec27e" weight="bold" size="large">{_("Successfully installed {}!").format(self.current_product)}</span>')
+            self.success_image.set_visible(True)
+            
+            # Add to IgnorePkg
+            # Infer package name based on product name
+            pkg_name = "davinci-resolve"
+            if "Studio" in self.current_product:
+                pkg_name = "davinci-resolve-studio"
+                
+            self.configure_pacman_ignore(pkg_name)
         
         self.content_stack.set_visible_child_name("info_view")
         self.progress_visible = False

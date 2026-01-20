@@ -5,5 +5,11 @@ translations = {
     "Install DaVinci Resolve from .run file": "Instalar DaVinci Resolve desde archivo .run",
     "Supports both DaVinci Resolve and DaVinci Resolve Studio": "Compatible con DaVinci Resolve y DaVinci Resolve Studio",
     "Select Installer File": "Seleccionar Archivo de Instalación",
-    "Installation cancelled.": "Instalación cancelada."
+    "Installation cancelled.": "Instalación cancelada.",
+
+    "Authentication Required": "Se requiere autenticación",
+    "Please enter your password to proceed with the installation.": "Introduzca su contraseña para continuar con la instalación.",
+    "Cancel": "Cancelar",
+    "Unlock": "Desbloquear",
+    "Password": "Contraseña",
 }
