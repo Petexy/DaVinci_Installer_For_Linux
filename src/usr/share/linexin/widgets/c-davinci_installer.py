@@ -285,7 +285,10 @@ class DaVinciInstallerWidget(Gtk.Box):
             install_deps_cmd = f"{sudo_wrap} pacman -Sy --noconfirm --overwrite '*' linexin-repo/libc++ linexin-repo/libc++abi"
             build_cmd = f"cd {quoted_tmp_dir} && export PACMAN_AUTH='{sudo_wrap}' && makepkg -si --noconfirm --skipinteg"
             
-            full_command = f"{pre_install_cmd} && {install_deps_cmd} && {build_cmd}"
+            # Fix permissions for /opt/resolve to prevent "Failed to create application support directories" error
+            fix_perms_cmd = f"{sudo_wrap} chown -R $USER:$(id -gn) /opt/resolve"
+            
+            full_command = f"{pre_install_cmd} && {install_deps_cmd} && {build_cmd} && {fix_perms_cmd}"
             self.begin_install(full_command, product_name)
         except Exception as e:
             self.show_error_message(_("Failed to prepare for installation: {}").format(e))
