@@ -10,4 +10,9 @@ translations = {
     "Cancel": "Anuluj",
     "Unlock": "Odblokuj",
     "Password": "Hasło",
+    "Show Progress": "Pokaż postęp",
+    "Hide Progress": "Ukryj postęp",
+    "Installing {}...": "Instalowanie {}...",
+    "Successfully installed {}!": "Pomyślnie zainstalowano {}!",
+    "Installation failed: ": "Instalacja nie powiodła się: ",
 }

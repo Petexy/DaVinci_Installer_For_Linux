@@ -273,9 +273,19 @@ class DaVinciInstallerWidget(Gtk.Box):
             self.prepare_build_environment(run_file_path, is_studio)
             quoted_tmp_dir = shlex.quote(self.tmp_build_dir)
             sudo_wrap = sudo_manager.wrapper_path
+            
+            # Dependencies to install via paru
+            davinci_deps = (
+                "glu gtk2 libpng12 fuse2 opencl-driver qt5-x11extras qt5-svg qt5-webengine "
+                "qt5-websockets qt5-quickcontrols2 qt5-multimedia libxcrypt-compat xmlsec "
+                "java-runtime ffmpeg4.4 gst-plugins-bad-libs python-numpy tbb apr-util luajit"
+            )
+            pre_install_cmd = f"paru -Sy --noconfirm --needed {davinci_deps} --sudo '{sudo_wrap}'"
+            
             install_deps_cmd = f"{sudo_wrap} pacman -Sy --noconfirm --overwrite '*' linexin-repo/libc++ linexin-repo/libc++abi"
             build_cmd = f"cd {quoted_tmp_dir} && export PACMAN_AUTH='{sudo_wrap}' && makepkg -si --noconfirm --skipinteg"
-            full_command = f"{install_deps_cmd} && {build_cmd}"
+            
+            full_command = f"{pre_install_cmd} && {install_deps_cmd} && {build_cmd}"
             self.begin_install(full_command, product_name)
         except Exception as e:
             self.show_error_message(_("Failed to prepare for installation: {}").format(e))
@@ -452,8 +462,6 @@ except Exception as e:
             self.btn_toggle_progress.set_visible(True)
             self.fail_image.set_visible(True)
         else:
-            self.info_label.set_markup(f'<span color="#2ec27e" weight="bold" size="large">{_("Successfully installed {}!").format(self.current_product)}</span>')
-            self.success_image.set_visible(True)
             self.info_label.set_markup(f'<span color="#2ec27e" weight="bold" size="large">{_("Successfully installed {}!").format(self.current_product)}</span>')
             self.success_image.set_visible(True)
             pkg_name = "davinci-resolve"
