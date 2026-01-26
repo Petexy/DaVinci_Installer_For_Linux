@@ -338,8 +338,8 @@ except Exception as e:
                 tf.write(script_content)
                 script_path = tf.name
             env = sudo_manager.get_env()
-            cmd = f"{sudo_manager.wrapper_path} python3 {script_path}"
-            subprocess.run(cmd, shell=True, check=True, env=env)
+            # Use run_privileged for secure execution
+            sudo_manager.run_privileged(["python3", script_path], check=True, env=env)
         except Exception as e:
             print(f"Failed to configure pacman IgnorePkg: {e}")
         finally:
@@ -398,6 +398,8 @@ except Exception as e:
     def run_shell_command(self, command):
         """Execute shell command in a separate thread"""
         def stream_output():
+            if sudo_manager:
+                sudo_manager.start_privileged_session()
             try:
                 env = sudo_manager.get_env()
                 process = subprocess.Popen(command,
@@ -436,6 +438,9 @@ except Exception as e:
         return False
     def finish_installation(self):
         """Handle installation completion"""
+        if sudo_manager:
+            sudo_manager.stop_privileged_session()
+        
         self.install_started = False
         self.btn_install.set_sensitive(True)
         self.btn_install.set_visible(True)
