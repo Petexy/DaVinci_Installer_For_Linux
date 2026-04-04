@@ -10,9 +10,10 @@ import shlex
 import re
 import tempfile
 import atexit
+from typing import Any
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib
+from gi.repository import Gtk, Adw, GLib  # type: ignore[attr-defined]
 APP_NAME = "davinci-installer"
 LOCALE_DIR = os.path.abspath("./locale")
 locale.setlocale(locale.LC_ALL, '')
@@ -20,6 +21,9 @@ locale.bindtextdomain(APP_NAME, LOCALE_DIR)
 gettext.bindtextdomain(APP_NAME, LOCALE_DIR)
 gettext.textdomain(APP_NAME)
 _ = gettext.gettext
+sudo_manager: Any = None  # Injected by linexin-center at runtime
+translate_dialog: Any = None  # Injected by linexin-center at runtime
+translate_window: Any = None  # Injected by linexin-center at runtime
 class DaVinciInstallerWidget(Gtk.Box):
     def __init__(self, hide_sidebar=False, window=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -81,6 +85,7 @@ class DaVinciInstallerWidget(Gtk.Box):
         def on_entry_activate(widget):
             dialog.response("unlock")
         entry.connect("activate", on_entry_activate)
+        translate_dialog(dialog)
         dialog.present()
     def validate_password(self):
         """Validate the sudo password using sudo -S"""
@@ -96,7 +101,7 @@ class DaVinciInstallerWidget(Gtk.Box):
         if self.window:
             try:
                 self.window.set_default_size(800, 600)
-                print("Window default size set to 1400x800")
+                print("Window default size set to 800x600")
             except Exception as e:
                 print(f"Failed to resize window: {e}")
         return False
@@ -263,6 +268,7 @@ class DaVinciInstallerWidget(Gtk.Box):
             dialog.add_response("ok", _("OK"))
             dialog.set_response_appearance("ok", Adw.ResponseAppearance.DEFAULT)
             dialog.connect("response", lambda d, r: d.close())
+            translate_dialog(dialog)
             dialog.present()
             return
         run_file_path = self.pending_run_file_path
@@ -271,6 +277,7 @@ class DaVinciInstallerWidget(Gtk.Box):
         product_name = "DaVinci Resolve Studio" if is_studio else "DaVinci Resolve"
         try:
             self.prepare_build_environment(run_file_path, is_studio)
+            assert self.tmp_build_dir is not None
             quoted_tmp_dir = shlex.quote(self.tmp_build_dir)
             sudo_wrap = sudo_manager.wrapper_path
             
@@ -293,10 +300,6 @@ class DaVinciInstallerWidget(Gtk.Box):
         except Exception as e:
             self.show_error_message(_("Failed to prepare for installation: {}").format(e))
             self.cleanup_build_environment()
-        try:
-            pass 
-        except:
-             pass
     def configure_pacman_ignore(self, app_package_name):
         """Add libc++, libc++abi and the app package to IgnorePkg in pacman.conf"""
         script_content = r"""
@@ -424,6 +427,7 @@ except Exception as e:
                     errors='replace',
                     env=env
                 )
+                assert process.stdout is not None
                 for line in iter(process.stdout.readline, ''):
                     if line:
                         self.progress_data += line
@@ -477,4 +481,5 @@ except Exception as e:
         self.cleanup_build_environment()
         if sudo_manager:
             sudo_manager.forget_password()
+        self.user_password = None
         return False

@@ -10,4 +10,12 @@ translations = {
     "Cancel": "Annuler",
     "Unlock": "Déverrouiller",
     "Password": "Mot de passe",
+    "Required file not found at {}": "Required file not found at {}",
+    "Could not extract version number from filename: {}": "Could not extract version number from filename: {}",
+    "Failed to prepare for installation: {}": "Failed to prepare for installation: {}",
+    "Warning: Failed to clean up temporary build files: {}": "Warning: Failed to clean up temporary build files: {}",
+    "Process exited with code {}": "Process exited with code {}",
+    "Installation failed: ": "Installation failed: ",
+    "Installing {}...": "Installing {}...",
+    "Successfully installed {}!": "Successfully installed {}!",    "\nError: {}": "\nError: {}",
 }
