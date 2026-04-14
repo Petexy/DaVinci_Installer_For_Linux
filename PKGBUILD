@@ -1,8 +1,8 @@
 # Maintainer: Petexy <https://github.com/Petexy>
 
 pkgname=davinci-installer
-pkgver=2.3.0.r
-pkgrel=2
+pkgver=3.0.0.r
+pkgrel=1
 pkgdesc='Smart Installer for DaVinci Resolve for Linux'
 url='https://github.com/Petexy'
 arch=('x86_64')
