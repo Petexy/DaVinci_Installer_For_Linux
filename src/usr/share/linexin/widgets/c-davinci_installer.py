@@ -347,7 +347,7 @@ class DaVinciInstallerWidget(Gtk.Box):
         def on_resp(d, r):
             d.close()
             if r == "remove":
-                self._perform_removal()
+                self._prompt_password_for_removal()
 
         dlg.connect("response", on_resp)
         try:
@@ -405,7 +405,45 @@ class DaVinciInstallerWidget(Gtk.Box):
         self.btn_remove.set_sensitive(True)
 
     # ── Remove helper ───────────────────────────────────────────────
+    def _prompt_password_for_removal(self):
+        dlg = Adw.MessageDialog(
+            heading=_("Authentication Required"),
+            body=_("Please enter your password to proceed with the removal."),
+            transient_for=self.get_root() or self.window,
+        )
+        dlg.add_response("cancel", _("Cancel"))
+        dlg.add_response("unlock", _("Unlock"))
+        dlg.set_response_appearance("unlock", Adw.ResponseAppearance.SUGGESTED)
 
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        entry = Gtk.PasswordEntry()
+        entry.set_property("placeholder-text", _("Password"))
+        box.append(entry)
+        dlg.set_extra_child(box)
+
+        def on_resp(d, r):
+            d.close()
+            if r == "unlock":
+                pwd = entry.get_text()
+                if pwd:
+                    try:
+                        if sudo_manager.validate_password(pwd):
+                            sudo_manager.set_password(pwd)
+                            self._perform_removal()
+                        else:
+                            self._show_auth_error()
+                    except NameError:
+                        self._perform_removal()
+            else:
+                self._set_state_post_install()
+
+        dlg.connect("response", on_resp)
+        entry.connect("activate", lambda _w: dlg.response("unlock"))
+        try:
+            translate_dialog(dlg)
+        except NameError:
+            pass
+        dlg.present()
     def _perform_removal(self):
         self._clear_actions()
         btn = Gtk.Button(label=_("Removing..."))
