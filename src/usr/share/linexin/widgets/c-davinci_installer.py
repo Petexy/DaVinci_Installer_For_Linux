@@ -494,6 +494,60 @@ class DaVinciInstallerWidget(Gtk.Box):
             pass
         dlg.present()
 
+    # ── GPU / OpenCL detection ──────────────────────────────────────
+
+    def _detect_opencl_package(self):
+        try:
+            lspci = subprocess.run(
+                ["lspci", "-nn"],
+                capture_output=True, text=True, timeout=5,
+            )
+            output = lspci.stdout.lower()
+            # Check VGA and 3D controller lines for GPU vendor
+            has_nvidia = bool(re.search(r"(?:vga|3d).*\bnvidia\b", output))
+            has_amd = bool(re.search(r"(?:vga|3d).*\b(?:amd|ati|radeon)\b", output))
+            if has_nvidia and not has_amd:
+                return "opencl-nvidia"
+            elif has_amd and not has_nvidia:
+                return "opencl-amd"
+            elif has_nvidia and has_amd:
+                # Hybrid GPU — install both
+                return "opencl-amd opencl-nvidia"
+        except Exception:
+            pass
+        # Fallback: check what's already installed
+        for pkg in ("opencl-amd", "opencl-mesa", "opencl-nvidia", "intel-compute-runtime", "rocm-opencl-runtime"):
+            r = subprocess.run(
+                ["pacman", "-Qq", pkg],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            if r.returncode == 0:
+                return pkg
+        return "opencl-mesa"
+
+    _OPENCL_AMD_COMMIT = "42c9eb7"
+
+    def _install_opencl_amd(self, sudo_wrap, env, on_line=None):
+        """Build and install opencl-amd from AUR at a known-good commit."""
+        # Skip if already installed at the pinned version
+        r = subprocess.run(
+            ["pacman", "-Qq", "opencl-amd"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        if r.returncode == 0:
+            return
+        tmpdir = tempfile.mkdtemp(prefix="opencl-amd-")
+        try:
+            clone_cmd = (
+                f"git clone https://aur.archlinux.org/opencl-amd.git {shlex.quote(tmpdir)}/opencl-amd "
+                f"&& cd {shlex.quote(tmpdir)}/opencl-amd "
+                f"&& git checkout {self._OPENCL_AMD_COMMIT} "
+                f"&& PACMAN_AUTH='{sudo_wrap}' makepkg -si --noconfirm --needed"
+            )
+            self._run_cmd(clone_cmd, env=env, on_line=on_line)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
     # ── Build environment ───────────────────────────────────────────
 
     def _prepare_build_environment(self, run_file_path, is_studio):
@@ -531,14 +585,14 @@ class DaVinciInstallerWidget(Gtk.Box):
             raise ValueError(_("Could not extract version number from filename: {}").format(filename))
 
         new_version = match.group(1)
+        opencl_pkg = self._detect_opencl_package()
+        opencl_deps = " ".join(f"'{p}'" for p in opencl_pkg.split())
         with open(dest_pkgbuild, "r") as f:
-            lines = f.readlines()
-        new_lines = [
-            f"pkgver={new_version}\n" if l.strip().startswith("pkgver=") else l
-            for l in lines
-        ]
+            content = f.read()
+        content = re.sub(r"(?m)^(pkgver=).*", f"pkgver={new_version}", content)
+        content = content.replace("'opencl-driver'", opencl_deps)
         with open(dest_pkgbuild, "w") as f:
-            f.writelines(new_lines)
+            f.write(content)
 
         shutil.move(run_file_path, os.path.join(src_dir, filename))
 
@@ -559,19 +613,23 @@ class DaVinciInstallerWidget(Gtk.Box):
             self.tmp_build_dir = None
             self.original_run_file_path = None
 
-    def _configure_pacman_ignore(self, app_package_name):
+    def _configure_pacman_ignore(self, app_package_name, extra_ignore=None):
+        all_packages = [app_package_name] if app_package_name else []
+        if extra_ignore:
+            for p in extra_ignore:
+                if p not in all_packages:
+                    all_packages.append(p)
+        pkg_list_str = " ".join(all_packages)
         script_content = r"""
 import sys, re, os
 conf_path = '/etc/pacman.conf'
-app_package = '%s'
+extra_pkgs = '%s'.split()
 try:
     with open(conf_path, 'r') as f:
         lines = f.readlines()
     new_lines = []
     ignore_pkg_found = False
-    packages = ['libc++', 'libc++abi']
-    if app_package:
-        packages.append(app_package)
+    packages = ['libc++', 'libc++abi'] + extra_pkgs
     for line in lines:
         if re.match(r'^\s*#?\s*IgnorePkg\s*=', line):
             ignore_pkg_found = True
@@ -603,7 +661,7 @@ try:
 except Exception as e:
     print(f"Error updating pacman.conf: {e}")
     sys.exit(1)
-""" % (app_package_name)
+""" % (pkg_list_str)
         script_path = None
         try:
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as tf:
@@ -675,11 +733,21 @@ except Exception as e:
 
             # AUR-only deps must be installed first so pacman can resolve them later
             aur_deps = "qt5-location"
-            davinci_deps = (
-                "glu gtk2 libpng12 fuse2 opencl-driver qt5-x11extras qt5-svg "
+            opencl_pkg = self._detect_opencl_package()
+
+            # opencl-amd needs to be built from AUR at a pinned commit;
+            # install it separately and exclude from the regular dep list
+            needs_opencl_amd = "opencl-amd" in opencl_pkg
+            regular_opencl = opencl_pkg.replace("opencl-amd", "").strip()
+
+            dep_list = (
+                "glu gtk2 libpng12 fuse2 qt5-x11extras qt5-svg "
                 "qt5-webengine qt5-websockets qt5-quickcontrols2 qt5-multimedia libxcrypt-compat "
                 "xmlsec java-runtime ffmpeg4.4 gst-plugins-bad-libs python-numpy tbb apr-util luajit"
             )
+            if regular_opencl:
+                dep_list = f"{regular_opencl} {dep_list}"
+            davinci_deps = dep_list
             aur_cmd = f"paru -Sy --noconfirm --needed --skipreview --removemake {aur_deps} --sudo '{sudo_wrap}'"
             paru_cmd = f"paru -Sy --noconfirm --needed --skipreview --removemake {davinci_deps} --sudo '{sudo_wrap}'"
             libs_cmd = f"{sudo_wrap} pacman -Sy --noconfirm --overwrite '*' linexin-repo/libc++ linexin-repo/libc++abi"
@@ -697,6 +765,12 @@ except Exception as e:
                     )
 
             self._run_cmd(f"{aur_cmd} && {paru_cmd} && {libs_cmd}", env=env, on_line=_on_dep_line)
+
+            if needs_opencl_amd:
+                self._step_on_main(
+                    step, _("Step {}: Installing dependencies...").format(step) + "  (opencl-amd)",
+                )
+                self._install_opencl_amd(sudo_wrap, env, on_line=_on_dep_line)
 
             # ── Step 2: Building and installing ──
             step += 1
@@ -719,7 +793,10 @@ except Exception as e:
 
             pkg_name = "davinci-resolve-studio" if "Studio" in self.current_product else "davinci-resolve"
             try:
-                self._configure_pacman_ignore(pkg_name)
+                ignore_pkgs = [pkg_name]
+                if needs_opencl_amd:
+                    ignore_pkgs.append("opencl-amd")
+                self._configure_pacman_ignore(pkg_name, extra_ignore=ignore_pkgs)
             except Exception:
                 pass
 
